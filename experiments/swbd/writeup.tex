@@ -1,0 +1,537 @@
+% ---- ETD Document Class and Useful Packages ---- %
+\documentclass{article}
+\usepackage{subfigure,epsfig,amsfonts}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{algorithmic,algorithm}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{fullpage}
+
+%% Use these commands to set biographic information for the title page:
+\title{Switchboard Spoken Term Detection Experiments}
+\author{Mark Stoehr}
+\date{\today}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+\begin{document}
+
+\maketitle
+
+We run an experiment on spoken term detection.
+
+\section{Collecting terms and training}
+
+The first task is to get the set of keywords and how many there are.
+Since we are working with switchboard, and, in particular, the
+\texttt{swb\_ms98} word transcriptions.  So we build a dictionary of
+the words that maps each word to a transcription.
+We will create a file \texttt{term\_identifiers} which is of the form
+\begin{verbatim}
+<term> <term-id>
+\end{verbatim}
+which will be produced by the script
+\begin{verbatim}
+mkdir -p data/local
+local/extract_words.py -d swb_ms98_transcriptions/sw-ms98-dict.text -o data/local/words.txt
+\end{verbatim}
+and a file \texttt{data/local/words.txt}
+\begin{verbatim}
+<word-id> <word>
+\end{verbatim}
+and then we need to get the counts of these. To do this we first
+compile a list of the word transcript files
+\begin{verbatim}
+mkdir -p data/local/word_stats
+cat swb_ms98_transcriptions/*/*/*-word.text | local/collect_word_stats.py -w data/local/words.txt -o data/local/word_stats
+\end{verbatim}
+and then we end up with files
+\begin{verbatim}
+data/local/word_stats/av_durations.txt
+\end{verbatim} 
+and we see that a good pick is probably to go with 
+\texttt{yes}.
+
+\subsection{Training and Testing Subsets}
+
+\begin{verbatim}
+dir=data/local
+SWBD_DIR=/var/tmp/stoehr/switchboard/swbI_release2/ALL
+find $SWBD_DIR -iname '*.sph' | sort > $dir/sph.flist
+\end{verbatim}
+we use the setup that Karen and Yossi used to get
+\begin{verbatim}
+sed 's:\-:\ :' DetailedNewAFKSData_description/train.reference.5000.wavlist.txt | awk '{ print $1 }' | sed 's/[AB]/.sph/' | sed 's:sw:/var/tmp/stoehr/switchboard/swbI_release2/ALL/sw0:' | sort | uniq > $dir/train.sph
+\end{verbatim}
+and then we get the lines not shared between the two files to get the
+test set
+\begin{verbatim}
+diff --suppress-common-lines $dir/sph.flist $dir/train.sph | grep '^<' | sed 's/^< //' > test.sph
+\end{verbatim}
+
+
+\section{\texttt{yes} experiment}
+
+We are doing an experiment with \texttt{yes}
+
+and we can 
+want to get the top words by occurrence that are
+of short duration and are very common
+ The counts are computed
+using the script
+\begin{verbatim}
+
+\end{verbatim}
+which will be const
+
+
+Our code is significantly different than from before.  One of the files is \texttt{CExtractInstances.py}
+which has the task of determining where the instances of a phone are within the data. In particular datum $i$ comes as 
+a signal $x_i(n)\in\mathbb{R}$ with $n\in[N_i]=\{0,1,\ldots,N_i-1\}$ paired with a transcript consisting in start times $t_i^{start}(m)\in[N_i]$,
+end times $t_i^{end}(m)\in[N_i]$ and labels $p_i(m)\in [P]$ where $m\in[M_i]$ so that $N_i$ is the number of samples (assumed to 
+uniformly sample a continuous signal) and $M_i$ is the number of labels.  The transcript forms a \textit{segmentation} of
+$[N_i]$ so that $t_i^{start}(m+1)=t_i^{end}(m)$ so that the labels are a division of the samples.  In general $M_i << N_i$.
+
+Our task is to produce a set of start times $\{\hat{t_k}\}_{k=0}^{\hat{K}-1}$ for a query label symbol $p\in[P]$ on an unlabeled
+signal $x$.  The algorithm we use for this task may be trained with a data set $\{(x_i,t_i^{start},t_i^{end},p_i)\}_{i=0}^{I-1}$.  The 
+approach we take is to compute a generalized log-likelihood ratio test $\lambda(n';\Theta_p,\theta_{bgd})$ at each time point
+$t$ so that
+\begin{equation}
+  \lambda(n';x,\Theta_p,\theta_{bgd}) = \max_{\theta\in\Theta_p}\log\frac{\mathbb{P}(x[n-n'];\theta)}{\mathbb{P}(x[n-n'];\theta_{bgd})}
+\end{equation}
+where $\Theta_p$ is a set of models for the signal if the signal label is $p$ (starting at sample $n=0$).
+The curve produced by $\lambda(n'; x,\Theta_p,\theta_{bgd})$ for all values $n'$ is then reduced to a finite set of times $\{\hat{t_k}\}_{k=0}^{\hat{K}-1}$ using a peak-finding algorithm.  We also include an optional peak-clustering step where the peaks are partitioned
+into contiguous time intervals (or clusters).  For scoring purposes we label each peak (or peak cluster) as being a \textit{hit}
+or a \textit{false alarm}.  In the case of peaks we consider the cluster a hit if the peak time is close to a labeled start time
+for the query label $p$. A peak cluster is a hit if the labeled start time occurs within the cluster.  A peak or a peak cluster
+is a false alarm otherwise.  We measure performace with an ROC curve which tracks the \textit{true positive rate}, or the fraction of
+true labeled start times that our detector finds and compares it to the \textit{false positive rate}, or the number of false alarms
+per hour (or other unit of time).
+
+\section{Building the Model}
+
+To build the model we extract all instances within a subset of the data.
+
+\subsection{Extracting the Data}
+
+We use several tools for extracting the data. The first is to just get the list of samples and locations for where the 
+target phone sequence occurs--that task is handled by \texttt{CObjectInstances.py}. It takes as an argument a label sequence, a config file
+(which wil be standard throughout the system), and a two column list of transcript-audio file path pairs. The command is invoked
+\begin{verbatim}
+paste train.phn train.wav | ./CObjectInstances.py --label_sequence $PHNSEQUENCE  > extracted_instances
+\end{verbatim}
+the output is a text file where each line is given by the following rule:
+\begin{verbatim}
+<file-path> <object-start-sample> <object-end-sample> (| <object-start-sample> <object-end-sample>)*
+\end{verbatim}
+so that we can have multiple instances.  However, for performing model inference and such we want to also extract some object context
+since we wish to estimate the detection thresholds that will be used to find objects.
+
+From here we could just extract the objects exactly at
+their labeled samples.  This approach is deficient, however,
+because of the way we estimate our statistical models and the
+way we perform detection because the detector will not generally
+fire exactly at the labeled start time for the object.  Thus
+associated with the object $i$ start sample, $t_i^{start}$, is a detection
+radius $r_i^{detect}$ so that a detection firing at a sample
+$t$ with $|t-t_i^{start}|<r_i^{detect}$ is considered a \textit{hit}.
+In order to estimate the behavior of a particular detection
+algorthm
+we want to extract some context around the object, so that
+we can compute the detectition statistics $\Lambda(t)$ at least
+for all times in $B(t_i^{start},r_i^{detect})$.  Moreover,
+our detector works as a sliding-window of fixed size
+(or potentially multiple such windows in parallel) where the size
+of the sliding window is chosen in a data-driven manner so the
+estimated sliding-window might be longer than the object we are
+testing against so we want to be sure to extract enough surrounding
+context of the object that we can test a sliding window of any
+potential length against any object.  The only bound we have
+on the length of the detection window is the length of the
+labeled examples $l_{\max}$.  The minimal segment of features
+that we want to extract will then be
+$$[t_i^{start}-r_i^{detect},t_i^{start}+r_i^{detect}+l_{\max}]$$
+and we can get $l_{\max}$ from the \texttt{object\_instances} file,
+but we also need to know $r_i^{detect}$, which we just set to be
+$l_i/3$ where $l_i$ is the object length.
+
+Different options could be set for these things and we are
+attempting to write code so that way these are handled elegantly
+and quickly.  These options are handled in main.config:
+\begin{verbatim}
+[DETECTION]
+adaptive_window=True
+window_radius=.3
+\end{verbatim}
+where this indicates that the radius of the window is to be $r_i=.3\cdot l_i$
+where $l_i$ is the length of the example.  A window with that radius will have
+length $2*r_i+1$.
+If we were to use the same radius $r$ for each window on each example the config
+file would have
+\begin{verbatim}
+[DETECTION]
+adaptive_window=False
+window_radius=10
+\end{verbatim}
+to indicate that we want a fixed window radius around all of the
+examples.  The tool we use is \texttt{CObjectContextSegments.py}
+and we run the command 
+\begin{verbatim}
+./CObjectContextSegments.py -f object_instances -c main.config > context_object_instances
+\end{verbatim}
+
+The format of \texttt{context\_object\_instances} is
+\begin{verbatim}
+<file-path> <object-context-times> ( | <object-context-times>)* ...
+\end{verbatim}
+where
+\begin{verbatim}
+<object-context-times> = <context-start> <context-end> <object-start> <object-end>
+\end{verbatim}
+indicates where the object is and what context to extract. We then
+construct a file that parses this along with the configuration
+file to produce a data set.
+
+In the next step we actually extract the training data. The command
+we use is \texttt{CExtractObjectContext.py} it takes the file
+\texttt{context\_object\_instances} as input as well as
+an argument to decide what to name the output files, an argument
+to determine whether to save the waveforms, and a path to a config
+file which determines the parameters for computing the Fourier
+transform with the file.  The command is run
+\begin{verbatim}
+./CExtractObjectContext.py -f context_object_instances -o out --do_wave_output -c main.config
+\end{verbatim}
+and then we can listen to the output and see the pictures of
+the output as well.
+\begin{verbatim}
+
+\end{verbatim}
+
+  The output files from that command
+run are
+\begin{verbatim}
+out_X.npy   # the binary edge features for the training examples
+out_S.npy   # spectrogram features for the training examples
+out_W.npy   # concatenated waveforms
+out_meta.txt  # text file containing when things happen
+out_bgd_E.npy # the background data file
+\end{verbatim}
+The next file to be run is the actual training of the data models:
+\begin{verbatim}
+./CTrainTemplates.py -f out -o orig -c main.config
+\end{verbatim}
+where the \texttt{-f out} flag indicates the file prefices for the
+data that will be used to estimate the templates, 
+\texttt{-o orig} is the prefix for the output files,
+and \texttt{-c main.config} is for the configuration file.  The 
+structure of this file is
+\begin{enumerate}
+\item Load in data
+\item Manipulate edge feature data to prepare for the Bernoulli EM algorithm
+\item Perform the Bernoulli estimation
+\item Extract the template visualizations
+\item Estimate the detection thresholds for all the examples.
+\end{enumerate}
+The output, specifically, that we need  is a matrix containing
+the linear-filters, constant terms, and detection thresholds.  
+
+
+The step after that is to estimate the model, once that has been
+estimated we can then perform the cascaded training and ultimately
+do the detection experiment.
+
+ this is an intermediate step before   Doing so allows for straightforward testing with templates of any given length.
+
+\section{Bernoulli Template Clustering}
+
+For this portion we begin constructing things that are going to
+be specific to the experiment under consideration
+so we create a dictionary to store these files
+\begin{verbatim}
+mkdir -p exp/model
+\end{verbatim}
+
+The command for getting the templates estimated is
+\begin{verbatim}
+CTrainTemplates.py -f out -o exp/model/templates -c main.config -v
+\end{verbatim}
+and these are some example templates trained. The output is
+the files
+\begin{verbatim}
+templates_constants.npy
+templates_E_filters.npy
+templates_affinities.npy
+templates_E_templates.npy
+templates_S_templates.npy
+\end{verbatim}
+  The algorithm is simple and just uses
+EM to estimate the templates.  The next step is to get the set of filters, which need not all the 
+the same length.  The code for constructing the filters is
+based on the log-likelihood ratio test.
+
+
+\section{Patchwork of Parts Model}
+
+To make the problem easier we are going to first cluster the templates using the standard Bernoulli methods
+and get the affinities.
+
+
+\section{Running the Recognizer}
+
+
+
+There are a couple of components to this. The first is to generate and template score series for each of the data files, these data
+series will be stored in \texttt{exp/train}. We generate them
+using the command
+\begin{verbatim}
+mkdir -p exp/loglike_ratio
+CTemplateScore.py -d train.wav -c main.config -t exp/model/templates -o exp/loglike_ratio
+\end{verbatim}
+and then this will output the score files.
+Those files are saved in 
+\begin{verbatim}
+exp/loglike_ratio/scores_meta.npy
+exp/loglike_ratio/scores.npy
+exp/loglike_ratio/labels_meta.npy
+exp/loglike_ratio/labels.npy
+exp/loglike_ratio/utt_ids
+\end{verbatim}
+where \texttt{scores\_meta.npy} is a two-dimensional array
+where each row corresponds to a score series
+stacked together in \texttt{scores.npy}, the first entry of the row
+is the utterance id in \texttt{utt\_ids}, the second entry
+is the mixture component, and the third entry is the number
+of frames.  The labels indicate where the keyword occurs.
+
+\section{Inferring Detection Thresholds and Base Detections}
+
+We consider two types of thresholds here. One is the correction
+that is done on the scores for off-object this allows us to do
+an FDR-style detection procedure for the true positives
+in the time series.
+
+\subsection{Likelihood Ratio Test Statistic Distribution Estimation}
+
+The first step is to figure out how the likelihood ratio test
+statistic is distributed on the data. And we do this with
+\texttt{CGetLRTMeanVar.py}
+and we run it with
+\begin{verbatim}
+CGetLRTMeanVar.py -i exp/loglike_ratio -m exp/model -c main.config
+\end{verbatim}
+which gets us the mean values and standard deviations on the performance of the
+detector on those data.  These can provide a diagnostic to show
+that a certain component should not be used. 
+
+\subsection{Detection Threshold}
+
+We first infer the detection threshold that will be used. Detections will correspond to local maxima
+of the detector, which may be seen from the detector sequence.  To get these we need
+to get the scores and use the meta of the scores to get a detection sequence.  Namely,
+we designate a score as a maximum if it is a maximum over all detectors as well as within a small
+interval of time.
+\begin{verbatim}
+CGetDetectThresholds.py -i exp/loglike_ratio -m exp/model -c main.config
+\end{verbatim}
+the input that this file requires is
+\begin{verbatim}
+exp/loglike_ratio/scores.npy
+exp/loglike_ratio/scores_meta.npy
+exp/loglike_ratio/labels.npy
+exp/model/templates_E_filters_midpoints.npy
+\end{verbatim}
+and then we save the results
+\begin{verbatim}
+exp/loglike_ratio/train_detection_scores.npy
+exp/loglike_ratio/train_detection_meta.npy
+exp/loglike_ratio/train_hit_scores.npy
+exp/loglike_ratio/train_hit_meta.npy
+\end{verbatim}
+and additionally we get the hits and false alarms
+arranged by which component detected them
+
+and these are were the detections are saved.  We also create a file for performing the clustering
+of these detection scores.
+
+\section{Training SVMS}
+
+The SVM
+
+
+\section{Get Detections}
+
+Detections are defined as local maxima that exceed the detection
+threshold.
+\begin{verbatim}
+CGetDetections.py -i exp/loglike_ratio
+\end{verbatim}
+
+
+\section{Detection Clustering}
+
+We now turn the series into clusters.  We use the procedure
+in ``Lattice Indexing for Spoken Term Detection''
+and we cluster the detections based on end time.
+\begin{verbatim}
+CClusterDetections.py -i exp/loglike_ratio -m exp/model
+\end{verbatim}
+based on the paper the steps are as follows:
+\begin{enumerate}
+\item sort the collected (start, end) times pairs with respect to end times
+\item identify the largest set of non-overlapping set of (start, end) times and assign them as cluster heads
+\item classify the rest of the pairs according to maximal overlap
+\end{enumerate}
+We observe that a greedy solution works for the second problem.  Namely
+we begin with the first element of the list and then we
+
+To run this algorithm we need to compute the overlap between two
+intervals
+the proposed function is
+\begin{equation}
+  overlap((a,b),(c,d)) = \{\min\{b,d\} - \max\{a,c\}\}_+
+\end{equation}
+since this is only non-zero iff $c<b$ and $a<d$ (as the two other
+inequalities are trivially implied by the intervals), which is a 
+sufficient condition for overlap.  If they are overlapping then
+the intersection between them will be an interval and the end
+point of that intersection will be the minimum of the two ends
+and the start will be the maximum of the two starts, which gives
+us the formula.
+
+The main statistics that we care about in these clusters is the extent of the cluster, the start time and identity of the detection with the largest score (representative mean of the cluster).  That
+detection will be the representative cluster that we actually
+output and use for scoring.
+
+\section{Setting up the cascade}
+
+In this section rather than just considering the clusterings
+\begin{verbatim}
+./CGetPosNeg.py -i exp/loglike_ratio -m exp/model
+\end{verbatim}
+
+
+
+\section{Evaluation}
+
+The standard for evaluation is that a system is output is judged
+as correct if the midpoint of the system output occurrence is 
+less than or equal to 0.5 seconds from the time span of a known
+occurrence of the search.  There is also the constraint a detection
+can be counted only for a single example and that an example only one detection can be counted as correct otherwise its a miss.
+
+
+\section{Detection Thresholds for ROC estimation}
+
+The next step is to find, for each positive training example,
+the largest 
+
+The algorithm is conducted in stages. We find all positive
+locations and we look within the 
+detection window for maximal score within those locations.  
+
+\section{Unsupervised template learning}
+
+We consider the general topic of Unsupervised template learning. First we consider an extension of the CSSR approach as given in
+\cite{shalizi04}.  Our setting is that we have Bernoulli vectors computed from several utterances for a single speaker. The code
+for this is given in \texttt{timit\_template\_learn\_data\_prep.sh} which shows that this is a TIMIT-focused experiment. Eventually
+I will test this on switchboard, etc.
+
+Just for the sake of simplicity I am going to work with a single female TIMIT speaker to get the ball rolling on this thing. First thing
+to do is to extract the features.  The choice of speaker is \texttt{fcjf0} whose utterances are in \texttt{train/dr1} the utterances are:
+\begin{verbatim}
+sa1.wav
+sa2.wav
+si1027.wav
+si1657.wav
+si648.wav
+sx127.wav
+sx217.wav
+sx307.wav
+sx37.wav
+sx397.wav
+\end{verbatim}
+
+I shall construct a script that converts these all into a single matrix (that will be divided to get training and development subsets).
+I will begin with the HTK feature extraction followed by my own.  I want to have the style of script be similar to what I saw in the 
+Kaldi framework, and everything is done with shell commands which have been:
+\begin{verbatim}
+./timit_template_learn_data_prep.sh
+WORKDIR=/home/mark/Research/Sufficiency/TemplateLearning/work
+SCRIPTDIR=/home/mark/Research/Sufficiency/TemplateLearning/bin
+PATH=$PATH:$HTK/HTKTools:$SCRIPTDIR
+DATA=$WORKDIR/data
+export PATH
+for ml in 1 2 3 4 5 6 7 ; do
+CClusterFeatures.py -c $WORKDIR/main.config -t $DATA/speaker_E_train.npy -d $DATA/speaker_E_dev.npy -l $ml -o $WORKDIR/model${ml}.npz --num_mix_set 1 2 4 6 8 16 32 64 128 -ts $DATA/speaker_S_train.npy
+done
+\end{verbatim}
+
+The data portion of the program is summarized in \texttt{\$DATA/speaker\_meta.txt}
+which indicates that five utterances were used for the training
+data:
+\begin{verbatim}
+sa1.wav
+sa2.wav
+si1027.wav
+si1657.wav
+si648.wav
+\end{verbatim}
+and there were a total of 2905 frames of data included.  I used
+Bernoulli mixture clustering 
+\begin{verbatim}
+template_speech_rec.bernoulli_mixture
+\end{verbatim}
+on the individual frames.  The next step is to estimate
+\begin{equation}
+  \hat{\mathbb{P}}(S_t\mid S_{t-1}, X_0^{T-1})
+\end{equation}
+where $S_t$ is the latent variable associated with an observation $X_t$.
+The length one model is just a set of models and weights $\{(T_1^i,w_1^i)\}_{i=1}^{k_1}$
+and thus we can compute a vector $A_t^i$ which are the normalized likelihoods of
+$X_t$ under model $T_1^i$ weighted by $w_1^i$:
+\begin{equation}
+  A_t^i = \frac{w_1^i\mathbb{P}_{T_1^i}(X_t)}{\sum_{j=1}^{k_1}w_1^j\mathbb{P}_{T_1^j}(X_t)}
+\end{equation}
+so then we have
+\begin{equation}
+  \begin{array}{rcl}
+  \hat{\mathbb{P}}(S_t\mid S_{t-1}) &=& \frac{\mathbb{P}(S_t, S_{t-1})}{\mathbb{P}(S_{t-1})}\\
+  &=& \frac{\sum_{t=1}^{T-1} A_t^i A_{t-1}^j}{\sum_{t=1}^{T-1}A_{t-1}^j}
+  \end{array}
+\end{equation}
+There is some subtlety to this, however, since there is a margin: i.e. points that don't havea complete history on either side. So we need to be really careful about defining these things.  We assume that
+we have observations $\{x_0^{T-1}\}$ so that means the history ranges
+over $\{x_0^{T-2}\}$ and the future ranges over $\{x_1^{T-1}\}$. Really
+what we have here is a matrix $W_{ij}^1$ which maps a state $j$
+to a state $i$.  Thus an important thing to use here are the
+affinities.  Thus we are in a similar situation to the standard
+HMM baum-welch algorithm. Next we want to distinguish
+sequences and do comparison for different length-clusterings.
+In particular we also have clusters for pairs of observations
+$(X_t,X_{t-1})$ and we need to know whether a pair has a different 
+predictive future distribution than an independent pair of
+observations.  There is some kind of multiple-testing difficulty
+that we encounter inherently by doing this and some kind of
+false-discovery rate or whatever.
+
+In any case the affinities are the main thing being used to get
+these predictions.  Before I continue I want to actually show
+what the data has produced. An interesting question is whether
+we are picking up any kind of differences between the different
+vowels and consonants and what not with this kind of clustering.
+
+ I do this by running the command
+\begin{verbatim}
+PLOTS=$WORKDIR/plots
+mkdir -p $PLOTS
+CViewModel -f $WORKDIR/model1.npz -g $PLOTS/model1
+\end{verbatim}
+ can associated with each $X_t$ 
+
+
+\end{document}
