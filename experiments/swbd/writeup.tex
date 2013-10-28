@@ -37,7 +37,8 @@ We will create a file \texttt{term\_identifiers} which is of the form
 which will be produced by the script
 \begin{verbatim}
 mkdir -p data/local
-local/extract_words.py -d swb_ms98_transcriptions/sw-ms98-dict.text -o data/local/words.txt
+SWB_MS98=/var/tmp/stoehr/Spoken_Term_Detection/swb_ms98_transcriptions
+local/extract_words.py -d $SWB_MS98/sw-ms98-dict.text -o data/local/words.txt
 \end{verbatim}
 and a file \texttt{data/local/words.txt}
 \begin{verbatim}
@@ -47,7 +48,7 @@ and then we need to get the counts of these. To do this we first
 compile a list of the word transcript files
 \begin{verbatim}
 mkdir -p data/local/word_stats
-cat swb_ms98_transcriptions/*/*/*-word.text | local/collect_word_stats.py -w data/local/words.txt -o data/local/word_stats
+cat $SWB_MS98/*/*/*-word.text | local/collect_word_stats.py -w data/local/words.txt -o data/local/word_stats
 \end{verbatim}
 and then we end up with files
 \begin{verbatim}
@@ -60,23 +61,63 @@ and we see that a good pick is probably to go with
 
 \begin{verbatim}
 dir=data/local
+mkdir -p $dir
 SWBD_DIR=/var/tmp/stoehr/switchboard/swbI_release2/ALL
+AFK_DIR=/var/tmp/stoehr/Spoken_Term_Detection/DetailedNewAFKSData_description
 find $SWBD_DIR -iname '*.sph' | sort > $dir/sph.flist
 \end{verbatim}
 we use the setup that Karen and Yossi used to get
 \begin{verbatim}
-sed 's:\-:\ :' DetailedNewAFKSData_description/train.reference.5000.wavlist.txt | awk '{ print $1 }' | sed 's/[AB]/.sph/' | sed 's:sw:/var/tmp/stoehr/switchboard/swbI_release2/ALL/sw0:' | sort | uniq > $dir/train.sph
+sed 's:\-:\ :' $AFK_DIR/train.reference.5000.wavlist.txt | awk '{ print $1 }' | sed 's/[AB]/.sph/' | sed 's:sw:/var/tmp/stoehr/switchboard/swbI_release2/ALL/sw0:' | sort | uniq > $dir/train.sph
 \end{verbatim}
 and then we get the lines not shared between the two files to get the
-test set
+testing and development set
 \begin{verbatim}
-diff --suppress-common-lines $dir/sph.flist $dir/train.sph | grep '^<' | sed 's/^< //' > test.sph
+diff --suppress-common-lines $dir/sph.flist $dir/train.sph | grep '^<' | sed 's/^< //' > $dir/test_dev.sph
 \end{verbatim}
-
+we note that these might have to switch around for a particular
+experiment because we need to guarantee that we have ample
+vocabulary in each of the sets.
 
 \section{\texttt{yes} experiment}
 
 We are doing an experiment with \texttt{yes}
+and the first step is going to be to check that we have
+the \texttt{yes} instances where they should be within
+that setup.  To get this done we first have to create a common set
+of utterance identifiers and then create yes counts.
+First we get the testing and development utterance ids
+\begin{verbatim}
+sed 's:/var/tmp/stoehr/switchboard/swbI_release2/ALL/sw0:sw:' $dir/test_dev.sph | sed 's:.sph::' > data/local/test_dev.uttids
+\end{verbatim}
+and these are then fed into the word counts computation
+\begin{verbatim}
+local/construct_word_counts_for_utterance.py --word_occurrences data/local/word_stats/yes  --uttids data/local/test_dev.uttids | sort -k 1,1  > data/local/test_dev.yes_occurences
+\end{verbatim}
+and then we get the development and testing sets
+\begin{verbatim}
+awk 'NR % 3 == 0' data/local/test_dev.yes_occurences | awk '{ print $1 }' > data/local/test.uttids
+awk 'NR % 3 != 0' data/local/test_dev.yes_occurences | awk '{ print $1 }' > data/local/dev.uttids
+\end{verbatim}
+and then we get the utterance identifiers for the test and dev files.
+
+The next step is to start extracting the feature matrices. To do
+this we first create a list of yes occurrences that only
+contain instances in the training set and before we do this we will
+first convert every file into the wave format using the
+sphere conversion tool where we use commands like:
+\begin{verbatim}
+KALDI_ROOT=/var/tmp/stoehr/Software/kaldi-trunk
+sph2pipe=$KALDI_ROOT/tools/sph2pipe_v2.5/sph2pipe
+cat  data/local/sph.flist | while read fl ; do
+   outflA=`echo $fl | sed 's:.sph:A.wav:' | sed 's:sw0:sw:'`
+   outflB=`echo $fl | sed 's:.sph:B.wav:' | sed 's:sw0:sw:'`
+   $sph2pipe -f wav -p -c 1 $fl $outflA
+   $sph2pipe -f wav -p -c 1 $fl $outflB
+done
+\end{verbatim}
+and then having done those \texttt{wav} file conversions. We
+then work on extracting all of the examples from there
 
 and we can 
 want to get the top words by occurrence that are
