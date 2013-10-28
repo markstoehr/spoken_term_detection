@@ -98,8 +98,8 @@ local/construct_word_counts_for_utterance.py --word_occurrences data/local/word_
 \end{verbatim}
 and then we get the development and testing sets
 \begin{verbatim}
-awk 'NR % 3 == 0' data/local/test_dev.yes_occurences | awk '{ print $1 }' > data/local/test.uttids
-awk 'NR % 3 != 0' data/local/test_dev.yes_occurences | awk '{ print $1 }' > data/local/dev.uttids
+awk 'NR % 3 == 0' data/local/test_dev.yes_occurrences | awk '{ print $1 }' > data/local/test.uttids
+awk 'NR % 3 != 0' data/local/test_dev.yes_occurrences | awk '{ print $1 }' > data/local/dev.uttids
 \end{verbatim}
 and then we get the utterance identifiers for the test and dev files.
 
@@ -119,7 +119,91 @@ cat  data/local/sph.flist | while read fl ; do
 done
 \end{verbatim}
 and then having done those \texttt{wav} file conversions. We
-then work on extracting all of the examples from there
+then work on extracting all of the examples from there to do
+this we run an extraction algorithm.  Before that can be done
+we will want to get all of the training examples into a file
+so that we can get the length of the examples in samples
+and decide on a common length to extract.
+\begin{verbatim}
+sed 's:A: A:' data/local/yes | sed 's:B: B:' | sed 's:B:B :' | sed 's:A:A :' | awk '{ print $1,$2, $4, $5 }'  | join data/local/train.uttids - > data/local/train.starts_ends
+\end{verbatim}
+echo '.674' | sed 's:^.:0.:'
+\begin{verbatim}
+(cat data/local/train.starts_ends | while read line ; do
+    set -- $line
+    shift ; shift
+    end_time=`echo $2 | sed 's:^\.:0.:'`
+    start_time=`echo $1 | sed 's:^\.:0.:'`
+    echo `echo "$end_time - $start_time" | bc`
+done ) | sort -rn > data/local/train.lengths
+\end{verbatim}
+and then we construct the file that will indicate which
+frames we are going to extract.  Before we can do that
+we construct a config file for this experiment
+\begin{verbatim}
+mkdir -p conf
+cat << "EOF" > conf/main.config
+[SPECTROGRAM]
+sample_rate=8000
+num_window_samples=160
+num_window_step_samples=40
+fft_length=256
+kernel_length=7
+freq_cutoff=3000
+preemphasis=.95
+use_mel=False
+do_mfccs=False
+no_use_dpss=False
+mel_nbands=40
+num_ceps=13
+liftering=.6
+include_energy=False
+include_deltas=False
+include_double_deltas=False
+delta_window=9
+do_freq_smoothing=False
+mel_smoothing_kernel=-1
+
+[EDGES]
+block_length=40
+spread_length=1
+threshold=.7
+magnitude_block_length=0
+abst_threshold=(0.025,  0.025,  0.015,  0.015,  0.02 ,  0.02 ,  0.02 ,  0.02 )
+magnitude_threshold=.4
+magnitude_spread=1
+magnitude_and_edge_features=False
+magnitude_features=False
+mag_smooth_freq=0
+mag_downsample_freq=0
+auxiliary_data=False
+auxiliary_threshold=.5
+num_mag_channels=10
+num_axiliary_data=3
+save_parts_S=False
+
+[TRAINING]
+tol=1e-6
+shift_window=11
+
+
+EOF
+\end{verbatim}
+and this forms the basis for extracting the features
+and the data.
+The main thing is the sampling rate and the parameters for the
+frames since that allows us to map times to frames.  The size of
+\texttt{shift\_window} under \texttt{[TRAINING]} is also important
+because it indicates the size of the context window that we
+should include for learning the word template.
+\begin{verbatim}
+awk '{ print $1 $2 ".wav", $3, $4 }' data/local/train.starts_ends\
+  | sed 's:^:/home/mark/Research/spoken_term_detection/experiments/swbd/wav_data/:' |\
+  local/extract_occurrences_swbd.py \
+  --lengths data/local/train.lengths \
+  --config conf/main.config > data/local/extracted_instances.train
+\end{verbatim}
+
 
 and we can 
 want to get the top words by occurrence that are
