@@ -195,7 +195,11 @@ frames since that allows us to map times to frames.  The size of
 because it indicates the size of the context window that we
 should include for learning the word template.
 \begin{verbatim}
-local/extract_occurrences_swbd.py --uttids train.uttids --occurrences data/local/yes --lengths data/local/train.lengths --config conf/main.config
+awk '{ print $1 $2 ".wav", $3, $4 }' data/local/train.starts_ends\
+  | sed 's:^:/home/mark/Research/spoken_term_detection/experiments/swbd/wav_data/:' |\
+  local/extract_occurrences_swbd.py \
+  --lengths data/local/train.lengths \
+  --config conf/main.config > data/local/extracted_instances.train
 \end{verbatim}
 
 
