@@ -125,15 +125,14 @@ we will want to get all of the training examples into a file
 so that we can get the length of the examples in samples
 and decide on a common length to extract.
 \begin{verbatim}
-sed 's:A: A:' data/local/yes | sed 's:B: B:' | sed 's:B:B :' | sed 's:A:A :' | awk '{ print $1,$2, $4, $5 }'  | join data/local/train.uttids - > data/local/train.starts_ends
+sed 's:A: A:' data/local/word_stats/yes | sed 's:B: B:' | sed 's:B:B :' | sed 's:A:A :' | awk '{ print $1,$2, $4, $5 }'  | join data/local/train.uttids - > data/local/train.starts_ends
 \end{verbatim}
 echo '.674' | sed 's:^.:0.:'
 \begin{verbatim}
 (cat data/local/train.starts_ends | while read line ; do
     set -- $line
-    shift ; shift
-    end_time=`echo $2 | sed 's:^\.:0.:'`
-    start_time=`echo $1 | sed 's:^\.:0.:'`
+    end_time=`echo $4 | sed 's:^\.:0.:'`
+    start_time=`echo $3 | sed 's:^\.:0.:'`
     echo `echo "$end_time - $start_time" | bc`
 done ) | sort -rn > data/local/train.lengths
 \end{verbatim}
@@ -198,10 +197,15 @@ because it indicates the size of the context window that we
 should include for learning the word template.
 \begin{verbatim}
 awk '{ print $1 $2 ".wav", $3, $4 }' data/local/train.starts_ends\
-  | sed 's:^:/home/mark/Research/spoken_term_detection/experiments/swbd/wav_data/:' |\
+  | sed 's:^:/var/tmp/stoehr/switchboard/swbI_release2/ALL/:' |\
   local/extract_occurrences_swbd.py \
   --lengths data/local/train.lengths \
   --config conf/main.config > data/local/extracted_instances.train
+\end{verbatim}
+and now that we have the extracted instances we can then
+save all of these into a matrix
+\begin{verbatim}
+local/extract_instances_info.py
 \end{verbatim}
 
 
